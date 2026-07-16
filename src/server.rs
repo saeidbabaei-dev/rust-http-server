@@ -1,7 +1,7 @@
-use std::{io, thread};
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use crate::connection::Connection;
+use std::net::TcpListener;
 use std::time::Duration;
+use std::{io, thread};
 
 pub struct Server {
     listener: TcpListener,
@@ -21,14 +21,11 @@ impl Server {
             match stream {
                 Ok(stream) => {
                     thread::spawn(move || {
-                        println!(
-                            "Worker {:?}",
-                            thread::current().id()
-                        );
+                        println!("Worker {:?}", thread::current().id());
 
                         Server::handle_connection(stream);
                     });
-                },
+                }
                 Err(error) => {
                     eprintln!("Failed to accept connection: {}", error);
                 }
@@ -38,56 +35,48 @@ impl Server {
         Ok(())
     }
 
-    fn handle_connection(mut stream: TcpStream) {
-        println!(
-    "Running on thread {:?}",
-    thread::current().id()
-);
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .expect("Failed to set read timeout");
+    fn handle_connection(stream: std::net::TcpStream) {
+        let mut connection = Connection::new(stream);
 
-        println!("New connection from {}", stream.peer_addr().unwrap());
+        connection.set_read_timeout(Duration::from_secs(5)).unwrap();
+
+        println!("Client {}", connection.peer_addr().unwrap());
 
         let mut buffer = [0u8; 4096];
 
-        match stream.read(&mut buffer) {
+        match connection.read(&mut buffer) {
             Ok(0) => {
-                println!("Client closed the connection.");
+                println!("Connection closed");
                 return;
             }
+
             Ok(bytes_read) => {
-                println!("Received {} bytes", bytes_read);
+                println!("Read {} bytes", bytes_read);
 
                 let request = String::from_utf8_lossy(&buffer[..bytes_read]);
 
-                println!("---------------- REQUEST ----------------");
                 println!("{}", request);
-                println!("-----------------------------------------");
 
                 let body = "Hello, World!";
 
                 let response = format!(
                     "HTTP/1.1 200 OK\r\n\
-                    Content-Type: text/plain\r\n\
                     Content-Length: {}\r\n\
+                    Content-Type: text/plain\r\n\
                     Connection: close\r\n\
                     \r\n\
                     {}",
                     body.len(),
                     body
                 );
-                if let Err(error) = stream.write_all(response.as_bytes()) {
-                    eprintln!("Write error: {}", error);
-                    return;
-                }
-                if let Err(error) = stream.flush() {
-                    eprintln!("Flush error: {}", error);
-                }
+
+                connection.write_all(response.as_bytes()).unwrap();
+
+                connection.flush().unwrap();
             }
 
             Err(error) => {
-                eprintln!("Failed to read: {}", error);
+                eprintln!("{}", error);
             }
         }
     }
